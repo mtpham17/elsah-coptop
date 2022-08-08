@@ -1,0 +1,770 @@
+---
+title: "Preliminary ELSA Machine Learnings Tests"
+author: "Jonathan Seiden"
+date: "8/18/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readstata13)
+library(tidyverse)
+library(glmnet)
+library(caret)
+library(fastDummies)
+```
+
+# Data consolidation process  
+
+In this section, we process the data to get it into a format where each row is a child. 
+
+## Child and Teacher Observation  
+First we input the child and teacher observations and process them.
+
+For each child in the COP data, we calculate:
+
+1) The average for the child for each of the indicators across sweeps
+2) The class average for each indicator *omitting* the child her/himself
+3) The class standard deviation for each indicator *omitting* the child her/himself (only including children with 10 or more sweeps)
+
+We then calculate the class average of the TOP indicators for the adults in the class by averaging across sweeps, and merge this data (one to many) with the child-level data. This merged data set contains XXX children in XXX classes
+
+```{r y1_obs, warning=FALSE}
+#Input the Year One long child and teacher observation data 
+y1_child_obs_raw <- read.dta13("y1o_c_long.dta")
+y1_teacher_obs_raw <- read.dta13("y1o_t_long.dta")
+y1_coverpage_obs <- read.dta13("y1o_coverpage.dta")
+
+#Re-format the child data so that it is one row per child
+
+## question to ask -- there are currently some columns with "_NA" at the end (I would assume this comes from the dummycols function) -- is this something that holds significance, or should we remove it in data cleaning?
+
+y1_child_obs <- y1_child_obs_raw %>%
+  mutate(cid = ifelse(childid == "N/A", o_c_uniqueid, childid)) %>%
+  group_by(cid, classid) %>%
+  mutate(nsweeps = n()) %>%
+  mutate_at(vars(o_c_verbal:o_c_focus), as.character) %>% 
+  select(c(classid, nsweeps, o_c_verbal:o_c_focus)) %>%
+  dummy_cols(select_columns = c("o_c_verbal", "o_c_towhom", "o_c_schedule", "o_c_interaction", "o_c_typetask", "o_c_involvement", "o_c_focus"),
+             remove_selected_columns = TRUE) %>% 
+  group_by(cid, classid) %>%
+  # replaced everything() with nsweeps:last_col()
+  summarize(across(nsweeps:last_col(), ~ mean(.x, na.rm = TRUE))) %>%
+  filter(nsweeps >= 10 ) %>% #THIS IS AN ARBITRARY PARAMETER
+  group_by(classid, cid) %>%
+  mutate(nclass = n(),
+         #This horrid mess calculated the leave-out mean in the class for each student for each COP variable
+         `o_c_verbal_Fuss/Cry (FC)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_verbal_Fuss/Cry (FC)`[-.x]), na.rm = TRUE),
+         `o_c_verbal_Listening (L)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_verbal_Listening (L)`[-.x]), na.rm = TRUE),
+         `o_c_verbal_No (N)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_verbal_No (N)`[-.x]), na.rm = TRUE),
+         `o_c_verbal_Talk (T)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_verbal_Talk (T)`[-.x]), na.rm = TRUE),
+         `o_c_verbal_Talk, Sounds (TS)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_verbal_Talk, Sounds (TS)`[-.x]), na.rm = TRUE),
+         `o_c_verbal_NA_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_verbal_NA`[-.x]), na.rm = TRUE),
+         `o_c_towhom_Child (C): One other child_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_Child (C): One other child`[-.x]), na.rm = TRUE),
+         `o_c_towhom_No talk/listen (NT)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_No talk/listen (NT)`[-.x]), na.rm = TRUE),
+         `o_c_towhom_Self (S)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_Self (S)`[-.x]), na.rm = TRUE),
+         `o_c_towhom_Small Group, No Teacher (SG)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_Small Group, No Teacher (SG)`[-.x]), na.rm = TRUE),
+         `o_c_towhom_Small Group, With Teacher (SGT)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_Small Group, With Teacher (SGT)`[-.x]), na.rm = TRUE),
+         `o_c_towhom_Teacher (T): Teacher or assistant (adult)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_Teacher (T): Teacher or assistant (adult)`[-.x]), na.rm = TRUE),
+         `o_c_towhom_Whole Group, No Teacher (WG)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_Whole Group, No Teacher (WG)`[-.x]), na.rm = TRUE),
+         `o_c_towhom_Whole Group, With Teacher (WGT)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_Whole Group, With Teacher (WGT)`[-.x]), na.rm = TRUE),
+         `o_c_towhom_NA_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_NA`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Centers (C)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Centers (C)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Combination of Small Group and Centers (SGC)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Combination of Small Group and Centers (SGC)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Gym (G)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Gym (G)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_IAT_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_IAT`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Meal Time (MT)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Meal Time (MT)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Nap (N)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Nap (N)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Playground (P)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Playground (P)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Small Groups (SG)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Small Groups (SG)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Special (SP)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Special (SP)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Transition (T)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Transition (T)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Whole Group (WG)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Whole Group (WG)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Alone (AL)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Alone (AL)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Associative (AS)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Associative (AS)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Cooperative (C)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Cooperative (C)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Non-Academic (NA)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Non-Academic (NA)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Onlooker (ON)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Onlooker (ON)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Parallel (P)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Parallel (P)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Social (SOC)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Social (SOC)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Time Out (TO)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Time Out (TO)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Unoccupied (UN)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Unoccupied (UN)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_NA_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_NA`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Disruptive (D)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Disruptive (D)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Non-Sequential (NS)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Non-Sequential (NS)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_None (N)"_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_None (N)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Other (O)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Other (O)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Passive Instruction (PI)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Passive Instruction (PI)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Sequential (SQ)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Sequential (SQ)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Sleep (S)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Sleep (S)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Social (SOC)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Social (SOC)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Time Out (TO)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Time Out (TO)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_NA_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_NA`[-.x]), na.rm = TRUE),
+         `o_c_involvement_High (H)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_involvement_High (H)`[-.x]), na.rm = TRUE),
+         `o_c_involvement_Low (L)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_involvement_Low (L)`[-.x]), na.rm = TRUE),
+         `o_c_involvement_Medium (M)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_involvement_Medium (M)`[-.x]), na.rm = TRUE),
+         `o_c_involvement_Medium High (MH)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_involvement_Medium High (MH)`[-.x]), na.rm = TRUE),
+         `o_c_involvement_Medium Low (ML)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_involvement_Medium Low (ML)`[-.x]), na.rm = TRUE),
+         `o_c_involvement_NA_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_involvement_NA`[-.x]), na.rm = TRUE),
+         `o_c_focus_Art (A)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Art (A)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Drama (D)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Drama (D)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Gross Motor (GM)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Gross Motor (GM)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Language Arts - Writing (LAW)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Language Arts - Writing (LAW)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Literacy - Writing (LW)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Literacy - Writing (LW)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Literacy (L)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Literacy (L)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Math (M)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Math (M)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Music and Movement (MM)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Music and Movement (MM)`[-.x]), na.rm = TRUE),
+         `o_c_focus_None (N)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_None (N)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Other (O)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Other (O)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Other Language (OL)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Other Language (OL)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Reading (R)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Reading (R)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Science (SC)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Science (SC)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Social Studies (SS)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Social Studies (SS)`[-.x]), na.rm = TRUE),
+         `o_c_focus_NA_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_NA`[-.x]), na.rm = TRUE)) %>%
+  ungroup 
+
+#Re-format the teacher data so that it is one row per class
+y1_teacher_obs <- y1_teacher_obs_raw %>% 
+  dummy_cols(select_columns = c("o_t_verbal_o", "o_t_whom_o", "o_t_schedule_o", 
+                                "o_t_task_o", "o_t_instruct", "o_t_focus_o", 
+                                "o_t_tone_o", "o_t_attention_o", "o_t_es_o"),
+             remove_selected_columns = TRUE) %>% 
+    group_by(classid) %>%
+  summarize(
+    nsweeps = n(),
+    nadult = length(unique(o_t_uniqueid)),
+    across(starts_with(c("o_t_verbal_o", "o_t_whom_o", "o_t_schedule_o", 
+                                "o_t_task_o", "o_t_instruct", "o_t_focus_o", 
+                                "o_t_tone_o", "o_t_attention_o", "o_t_es_o")),
+           ~ mean(.x, na.rm = TRUE))) %>%
+  select(-ends_with("_")) %>% 
+  ungroup
+
+#Merge teacher and child observations 
+y1_obs <- left_join(y1_child_obs, y1_teacher_obs, by = "classid")
+
+```
+```{r}
+table(y1_teacher_obs$nadult)
+```
+
+
+```{r y2_obs, warning=FALSE}
+#Input the Year One long child and teacher observation data 
+y2_child_obs_raw <- read.dta13("y2o_c_long.dta")
+y2_teacher_obs_raw <- read.dta13("y2o_t_long.dta")
+y2_coverpage_obs <- read.dta13("y2o_coverpage.dta")
+
+mean(y2_coverpage_obs$classid %in% y1_coverpage_obs$classid)
+
+#Re-format the child data so that it is one row per child
+y2_child_obs <- y2_child_obs_raw %>%
+  group_by(cid, classid) %>%
+  mutate(nsweeps = n()) %>%
+  mutate_at(vars(o_c_verbal:o_c_focus), as.character) %>% 
+  select(c(classid, nsweeps, o_c_verbal:o_c_focus)) %>%
+  dummy_cols(select_columns = c("o_c_verbal", "o_c_towhom", "o_c_schedule", "o_c_interaction", "o_c_typetask", "o_c_involvement", "o_c_focus"),
+             remove_selected_columns = TRUE) %>% 
+  group_by(cid, classid) %>%
+  summarize(across(everything(),  ~ mean(.x, na.rm = TRUE))) %>%
+  filter(nsweeps >= 10 ) %>% #THIS IS AN ARBITRARY PARAMETER
+  group_by(classid) %>%
+  mutate(nclass = n(),
+         #This horrid mess calculated the leave-out mean in the class for each student for each COP variable
+         `o_c_verbal_Fuss/Cry (FC)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_verbal_Fuss/Cry (FC)`[-.x]), na.rm = TRUE),
+         `o_c_verbal_Listening (L)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_verbal_Listening (L)`[-.x]), na.rm = TRUE),
+         `o_c_verbal_No (N)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_verbal_No (N)`[-.x]), na.rm = TRUE),
+         `o_c_verbal_Talk (T)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_verbal_Talk (T)`[-.x]), na.rm = TRUE),
+         `o_c_verbal_Talk, Sounds (TS)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_verbal_Talk, Sounds (TS)`[-.x]), na.rm = TRUE),
+         `o_c_verbal_NA_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_verbal_NA`[-.x]), na.rm = TRUE),
+         `o_c_towhom_Child (C): One other child_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_Child (C): One other child`[-.x]), na.rm = TRUE),
+         `o_c_towhom_No talk/listen (NT)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_No talk/listen (NT)`[-.x]), na.rm = TRUE),
+         `o_c_towhom_Self (S)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_Self (S)`[-.x]), na.rm = TRUE),
+         `o_c_towhom_Small Group, No Teacher (SG)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_Small Group, No Teacher (SG)`[-.x]), na.rm = TRUE),
+         `o_c_towhom_Small Group, With Teacher (SGT)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_Small Group, With Teacher (SGT)`[-.x]), na.rm = TRUE),
+         `o_c_towhom_Teacher (T): Teacher or assistant (adult)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_Teacher (T): Teacher or assistant (adult)`[-.x]), na.rm = TRUE),
+         `o_c_towhom_Whole Group, No Teacher (WG)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_Whole Group, No Teacher (WG)`[-.x]), na.rm = TRUE),
+         `o_c_towhom_Whole Group, With Teacher (WGT)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_Whole Group, With Teacher (WGT)`[-.x]), na.rm = TRUE),
+         `o_c_towhom_NA_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_towhom_NA`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Centers (C)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Centers (C)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Combination of Small Group and Centers (SGC)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Combination of Small Group and Centers (SGC)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Gym (G)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Gym (G)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Individual activity w teacher (IAT)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Individual activity w teacher (IAT)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Meal Time (MT)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Meal Time (MT)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Nap (N)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Nap (N)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Playground (P)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Playground (P)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Small Groups (SG)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Small Groups (SG)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Special (SP)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Special (SP)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Transition (T)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Transition (T)`[-.x]), na.rm = TRUE),
+         `o_c_schedule_Whole Group (WG)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_schedule_Whole Group (WG)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Alone (AL)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Alone (AL)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Associative (AS)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Associative (AS)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Cooperative (C)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Cooperative (C)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Non-Academic (NA)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Non-Academic (NA)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Onlooker (ON)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Onlooker (ON)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Parallel (P)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Parallel (P)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Social (SOC)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Social (SOC)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Time Out (TO)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Time Out (TO)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_Unoccupied (UN)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_Unoccupied (UN)`[-.x]), na.rm = TRUE),
+         `o_c_interaction_NA_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_interaction_NA`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Disruptive (D)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Disruptive (D)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Non-Sequential (NS)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Non-Sequential (NS)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_None (N)"_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_None (N)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Other (O)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Other (O)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Passive Instruction (PI)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Passive Instruction (PI)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Sequential (SQ)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Sequential (SQ)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Sleep (S)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Sleep (S)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Social (SOC)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Social (SOC)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_Time Out (TO)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_Time Out (TO)`[-.x]), na.rm = TRUE),
+         `o_c_typetask_NA_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_typetask_NA`[-.x]), na.rm = TRUE),
+         `o_c_involvement_High (H)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_involvement_High (H)`[-.x]), na.rm = TRUE),
+         `o_c_involvement_Low (L)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_involvement_Low (L)`[-.x]), na.rm = TRUE),
+         `o_c_involvement_Medium (M)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_involvement_Medium (M)`[-.x]), na.rm = TRUE),
+         `o_c_involvement_Medium High (MH)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_involvement_Medium High (MH)`[-.x]), na.rm = TRUE),
+         `o_c_involvement_Medium Low (ML)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_involvement_Medium Low (ML)`[-.x]), na.rm = TRUE),
+         `o_c_involvement_NA_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_involvement_NA`[-.x]), na.rm = TRUE),
+         `o_c_focus_Art (A)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Art (A)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Drama (D)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Drama (D)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Gross Motor (GM)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Gross Motor (GM)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Language Arts - Writing (LAW)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Language Arts - Writing (LAW)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Literacy - Writing (LW)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Literacy - Writing (LW)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Literacy (L)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Literacy (L)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Math (M)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Math (M)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Music and Movement (MM)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Music and Movement (MM)`[-.x]), na.rm = TRUE),
+         `o_c_focus_None (N)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_None (N)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Other (O)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Other (O)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Other Language (OL)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Reading (R)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Science (SC)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Science (SC)`[-.x]), na.rm = TRUE),
+         `o_c_focus_Social Studies (SS)_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_Social Studies (SS)`[-.x]), na.rm = TRUE),
+         `o_c_focus_NA_classmean` = 
+           map_dbl(row_number(), ~ mean(`o_c_focus_NA`[-.x]), na.rm = TRUE)) %>%
+  ungroup 
+
+#Re-format the teacher data so that it is one row per class
+y2_teacher_obs <- y2_teacher_obs_raw %>% 
+  dummy_cols(select_columns = c("o_t_verbal_o", "o_t_whom_o", "o_t_schedule_o", 
+                                "o_t_task_o", "o_t_instruct", "o_t_focus_o", 
+                                "o_t_tone_o", "o_t_attention_o", "o_t_es_o"),
+             remove_selected_columns = TRUE) %>% 
+    group_by(classid) %>%
+  summarize(
+    nsweeps = n(),
+    nadult = length(unique(o_t_uniqueid)),
+    across(starts_with(c("o_t_verbal_o", "o_t_whom_o", "o_t_schedule_o", 
+                                "o_t_task_o", "o_t_instruct", "o_t_focus_o", 
+                                "o_t_tone_o", "o_t_attention_o", "o_t_es_o")),
+            ~ mean(.x, na.rm = TRUE))) %>%
+  select(-ends_with("_")) %>% 
+  ungroup
+
+#Extract the caretype from the observation sheet
+## ASK -- what is meant by this?
+
+#Merge teacher and child observations 
+y2_obs <- left_join(y2_child_obs, y2_teacher_obs, by = "classid")
+
+```
+
+
+Below we now input the child-level outcome data. We focus on the outcomes that Emily suggested, and extract the year 1 and year 2 values for each child and then merge to create a single dataset. 
+
+```{r child.outcomes, warning=FALSE}
+#Get Year 1 and Year 2 child data
+y1_child_outcomes_raw <- read.dta13("y1c.dta")
+y2_child_outcomes_raw <- read.dta13("y2c.dta")
+
+#Rename all y1 variables and y2 variables so we don't lose them when merging
+y1_child_outcomes <-  y1_child_outcomes_raw %>% 
+  select(cid, c_mefs_str, c_pt_pcorrect, c_ltr_cogsoc_comp, c_ltr_emo_comp, 
+         c_pra_total, c_pbsa_total, c_quils_total_raw, c_wjlw_str, c_wjap_str) %>% 
+  rename_all( ~ paste0("y1_", .x)) %>% 
+  mutate(cid = as.character(y1_cid))
+
+y2_child_outcomes <-  y2_child_outcomes_raw %>% 
+  select(cid, c_mefs_str, c_pt_pcorrect, c_ltr_cogsoc_comp, c_ltr_emo_comp, 
+         c_pbsa_allgrades_total, c_pra_allgrades_total, c_quils_total_raw, 
+         c_wjlw_str, c_wjap_str, c_age_cat_test, c_age_test) %>% 
+  rename(c_pra_total = c_pra_allgrades_total,
+         c_pbsa_total = c_pbsa_allgrades_total) %>% 
+  rename_all( ~ paste0("y2_", .x)) %>% 
+  mutate(cid = as.character(y2_cid))
+
+#Merge Y2 and Y1 data together and calculate the gain score for each of the outcomes
+child_outcomes <- merge(y1_child_outcomes, y2_child_outcomes, by = "cid") %>% 
+  mutate(gain_c_mefs_str = y2_c_mefs_str - y1_c_mefs_str, 
+         gain_c_pt_pcorrect = y2_c_pt_pcorrect - y1_c_pt_pcorrect,  
+         gain_c_ltr_cogsoc_comp = y2_c_ltr_cogsoc_comp - y1_c_ltr_cogsoc_comp,  
+         gain_c_ltr_emo_comp = y2_c_ltr_emo_comp - y1_c_ltr_emo_comp, 
+         gain_c_pra_total = y2_c_pra_total - y1_c_pra_total, 
+         gain_c_pbsa_total = y2_c_pbsa_total - y1_c_pbsa_total, 
+         gain_c_quils_total_raw = y2_c_quils_total_raw - y1_c_quils_total_raw, 
+         gain_c_wjlw_str = y2_c_wjlw_str - y1_c_wjlw_str, 
+         gain_c_wjap_str = y2_c_wjap_str - y1_c_wjap_str,
+         cid = as.numeric(cid))
+
+```
+
+Finally, we merge together the Year 1 observation data with the Year 1 & 2 child outcome data and add in care type. We omit observations that have no classroom observation resulting in a total analytic dataframe of 1169 observations of 64 variables. 
+
+```{r merge.obs.outcomes}
+#Merge in the outcomes data 
+
+# CHANGES THIS TO y1_obs (I think this is what was intended)
+
+# what to do with NAs here? I'm going to replace with zeros for the time being
+
+# add this line in so that the merge is correctly executed
+
+y1_obs <- y1_obs %>%
+  filter(!is.na(cid)) %>%
+  mutate(cid = as.numeric(cid))
+
+outcomes_and_obs_y1 <- left_join(child_outcomes, y1_obs, by = "cid") %>% 
+  mutate(cid = as.character(cid))
+
+#Add in the care type
+caretype <- read.dta13("y1caretype.dta") %>% 
+  mutate(cid = as.character(cid))
+
+#Remove observations that have no care type or no classroom observation
+outcomes_and_obs_full_y1 <- left_join(outcomes_and_obs_y1, caretype, by = "cid") %>% 
+  mutate(hasobservation = is.na(classid)) %>% 
+  filter(!is.na(caretype)) %>%
+  filter(!is.na(classid))
+
+# outcomes_and_obs_full_y1 <- outcomes_and_obs %>% 
+#   filter(!is.na(classid))
+
+#Remove Y1 and Y2 data for cleanliness
+outcomes_and_obs_full_y1 <- outcomes_and_obs_full_y1 %>% 
+  select(-starts_with(c("y1", "y2")))
+
+#Remove some irrelevant variables
+outcomes_and_obs_full_y1 <- outcomes_and_obs_full_y1 %>% 
+  select(-c(famid, dob:dob_uncertain, actual_fcc:hasobservation)) %>% 
+  mutate(caretype = as.factor(caretype),
+         actualtype = as.factor(actualtype))
+```
+
+
+```{r merge.obs.outcomes}
+#There are some issues with NA and NaN in the observation data that will mess up our analysis. We will replace these with the mean of the variables
+
+replace.na <- function(var){
+  ifelse(is.na(var) | is.nan(var), mean(var), var)
+}
+# names(outcomes_and_obs_full_y1)
+outcomes_and_obs_full_y1 <- outcomes_and_obs_full_y1 %>% 
+  mutate_at(vars("o_c_verbal_Fuss/Cry (FC)":actualtype), replace.na)
+
+# what is o_t_sched_t supposed to be for? replacing with actualtype for now just to run analysis
+
+# replacing all NaNs in hopes that it will fix the model matrix issue
+# originally was o_c_verbal_talk:o_t_sched_t
+
+dim(outcomes_and_obs_full_y1)
+```
+
+## Analysis
+
+We will first try a cross-validated LASSO, which will aggressively remove variables that do little to improve the predictive accuracy of the model.  
+
+```{r loop lasso year1, echo=TRUE, fig.height=8}
+# looping through gain variables
+
+# initiate two lists to store results of each model (for the graph and the coefficients)
+
+# https://stackoverflow.com/questions/9332417/whats-a-good-way-to-store-multiple-models-in-an-r-data-structure
+set.seed(4224)
+
+gain_ind <- which(startsWith(colnames(outcomes_and_obs_full_y1), "gain"))
+
+models_y1 <- list()
+coefs_y1 <- list()
+
+for (i in gain_ind) {
+  name <- names(outcomes_and_obs_full_y1)[i]
+  df_analysis <- outcomes_and_obs_full_y1 %>%
+    filter(!is.na(outcomes_and_obs_full_y1[[name]])) %>%
+    select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype))
+  print(name)
+  # options(na.action="na.pass")
+  x = model.matrix(as.formula(paste(name, "~ .")), data = df_analysis)
+  
+  y = df_analysis[[name]]
+  print(dim(x))
+  x = x[, -1]
+  
+
+  # call cv.glmnet()
+  model_lasso <- cv.glmnet(x = x, y = y, alpha = 1)
+  plot(model_lasso)
+  
+  models_y1[[name]] <- model_lasso
+  
+  cc = coef(model_lasso, s = model_lasso$lambda.min)
+
+  # print out the model coefficients and store in a list.
+  cc = cc[cc[,1]!=0,1]
+  coefs_y1[[name]] <- cc
+  print(cc)
+
+}
+
+```
+
+
+
+```{r loop rf_test year1, echo=TRUE, fig.height=8}
+# rerun this before you sleep
+replace.na <- function(var){
+  ifelse(is.na(var) | is.nan(var), mean(var), var)
+}
+
+for (i in gain_ind) {
+  name <- names(outcomes_and_obs_full_y1)[i]
+  df_analysis <- outcomes_and_obs_full_y1 %>%
+    filter(!is.na(outcomes_and_obs_full_y1[[name]])) %>%
+    select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype)) %>%
+    # ask about verbal_fuss vs o_c_verbal_Talk(T) (original)
+    mutate_at(vars("o_c_verbal_Fuss/Cry (FC)":actualtype), replace.na)
+  print(name)
+  # options(na.action="na.pass")
+  x = model.matrix(as.formula(paste(name, "~ .")), data = df_analysis)
+  
+  # Fit the random forest model
+  rf_fit <- train(as.formula(paste(name, "~ ."), #Use all variables in the prediction
+                data = df_analysis, #Use the training data
+                method = "ranger",
+                importance = "permutation",
+                num.trees = 500,
+                na.action=na.pass))
+                
+  varImp(rf_fit) %>%
+    pluck(1) %>%
+    rownames_to_column("var") %>%
+    ggplot(aes(x = reorder(var, Overall), y = Overall)) +
+    geom_col(fill = "grey75") +
+    coord_flip() +
+    theme_minimal()
+}
+
+
+# commented out this code because it has been used earlier
+
+# rf_fit <- train(gain_c_pt_pcorrect ~ ., 
+#                 data = gain_c_pt_pcorrect_analysis) #Use all variables in the prediction
+# rf_fit <- train(gain_c_pt_pcorrect ~ .) #Use all variables in the prediction
+# table(outcomes_and_obs_full_y1$nclass)
+```
+
+
+
+
+```{r next steps}
+#Next steps
+#1. Try Y2 observation data instead of Y1, and compare results
+#2. Try a model with a bunch of predictors from Y1 Y2
+#3. Use the particular caretype from the  setting that is being observed in. (prov_type)
+#Collapse CC-Community Based & CC- License Exempt
+#4. Drop all variances and instead focus on means --  not sure what this means
+#5. Incorporte child-level covariates 
+#6. Age and elapsed time for assessment
+```
+
+
+```{r merge.obs.outcomes}
+#Merge in the outcomes data 
+#  Try Y2 observation data instead of y1, and compare results
+
+# add this line in so that the merge is correctly executed
+
+y2_obs <- y2_obs %>%
+  filter(!is.na(cid)) %>%
+  mutate(cid = as.numeric(cid))
+
+outcomes_and_obs_y2 <- left_join(child_outcomes, y2_obs, by = "cid") %>% 
+  mutate(cid = as.character(cid))
+
+#Add in the care type -- confirm that it is supposed to be year-specific
+caretype <- read.dta13("y2caretype.dta", nonint.factors = TRUE) %>% 
+  mutate(cid = as.character(cid))
+
+#Remove observations that have no care type or no classroom observation
+outcomes_and_obs_full_y2 <- left_join(outcomes_and_obs_y2, caretype, by = "cid") %>% 
+  mutate(hasobservation = is.na(classid)) %>% 
+  filter(!is.na(caretype)) %>%
+  filter(!is.na(classid))
+
+# outcomes_and_obs_full_y1 <- outcomes_and_obs %>% 
+#   filter(!is.na(classid))
+
+#Remove Y1 and Y2 data for cleanliness
+outcomes_and_obs_full_y2 <- outcomes_and_obs_full_y2 %>% 
+  select(-starts_with(c("y1", "y2")))
+
+#Remove some irrelevant variables
+outcomes_and_obs_full_y2 <- outcomes_and_obs_full_y2 %>% 
+  # seems like provid is the same thing as famid in this case?
+  select(-c(provid, dob, actualtype_fcc:hasobservation)) %>% 
+  mutate(caretype = as.factor(caretype),
+         actualtype = as.factor(actualtype))
+```
+
+
+```{r merge.obs.outcomes}
+#There are some issues with NA and NaN in the observation data that will mess up our analysis. We will replace these with the mean of the variables
+
+replace.na <- function(var){
+  ifelse(is.na(var) | is.nan(var), mean(var), var)
+}
+# names(outcomes_and_obs_full_y1)
+outcomes_and_obs_full_y2 <- outcomes_and_obs_full_y2 %>% 
+  mutate_at(vars("o_c_verbal_Fuss/Cry (FC)":actualtype), replace.na)
+
+# what is o_t_sched_t supposed to be for? replacing with actualtype for now just to run analysis
+
+# replacing all NaNs in hopes that it will fix the model matrix issue
+# originally was o_c_verbal_talk:o_t_sched_t
+
+dim(outcomes_and_obs_full_y2)
+```
+
+## Analysis
+
+We will first try a cross-validated LASSO, which will aggressively remove variables that do little to improve the predictive accuracy of the model.  
+
+```{r loop lasso y2, echo=TRUE, fig.height=8}
+set.seed(4224)
+
+gain_ind <- which(startsWith(colnames(outcomes_and_obs_full_y2), "gain"))
+
+models_y2 <- list()
+coefs_y2 <- list()
+
+for (i in gain_ind) {
+  name <- names(outcomes_and_obs_full_y2)[i]
+  df_analysis <- outcomes_and_obs_full_y2 %>%
+    filter(!is.na(outcomes_and_obs_full_y2[[name]])) %>%
+    select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype))
+  print(name)
+  options(na.action="na.pass")
+  x = model.matrix(as.formula(paste(name, "~ .")), data = df_analysis)
+  
+  y = df_analysis[[name]]
+  print(dim(x))
+  x = x[, -1]
+  
+
+  # call cv.glmnet()
+  model_lasso <- cv.glmnet(x = x, y = y, alpha = 1)
+  plot(model_lasso)
+  
+  models_y2[[name]] <- model_lasso
+  
+  cc = coef(model_lasso, s = model_lasso$lambda.min)
+
+  # print out the model coefficients and store in a list.
+  cc = cc[cc[,1]!=0,1]
+  coefs_y2[[name]] <- cc
+  print(cc)
+}
+```
+
+
+
+```{r loop rf_test y2, echo=TRUE, fig.height=8}
+# had to use 0 for this replace.na function? not sure what this entails...
+replace.na <- function(var){
+  ifelse(is.na(var) | is.nan(var), 0, var)
+}
+
+for (i in gain_ind) {
+  name <- names(outcomes_and_obs_full_y1)[i]
+  df_analysis <- outcomes_and_obs_full_y1 %>%
+    filter(!is.na(outcomes_and_obs_full_y1[[name]])) %>%
+    select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype)) %>%
+    # ask about verbal_fuss vs o_c_verbal_Talk(T) (original)
+    mutate_at(vars("o_c_verbal_Fuss/Cry (FC)":actualtype), replace.na)
+  print(name)
+  # options(na.action="na.pass")
+  x = model.matrix(as.formula(paste(name, "~ .")), data = df_analysis)
+  
+  # Fit the random forest model
+  rf_fit <- train(as.formula(paste(name, "~ ."), #Use all variables in the prediction
+                data = df_analysis, #Use the training data
+                method = "ranger",
+                importance = "permutation",
+                num.trees = 500,
+                na.action=na.pass))
+                
+  varImp(rf_fit) %>%
+    pluck(1) %>%
+    rownames_to_column("var") %>%
+    ggplot(aes(x = reorder(var, Overall), y = Overall)) +
+    geom_col(fill = "grey75") +
+    coord_flip() +
+    theme_minimal()
+}
+```
+
+
+```{r multiple predictors, echo=TRUE, fig.height=8}
+# Try a model with a bunch of predictors from Y1 Y2 -- question: what would be predicted, then?
+# since it looks like the gains are different from year to year
+
+outcomes_and_obs_full_y2
+```
+
+
+```{r community based, echo=TRUE, fig.height=8}
+#3. Use the particular caretype from the  setting that is being observed in. (prov_type)
+#Collapse CC-Community Based & CC- License Exempt
+```
+
+
+```{r variances and means, echo=TRUE, fig.height=8}
+#4. Drop all variances and instead focus on means
+```
+
+
+```{r child-level covariates, echo=TRUE, fig.height=8}
+#5. Incorporte child-level covariates
+```
+
+
+```{r age and elapsed time for assessment, echo=TRUE, fig.height=8}
+
+#6. Age and elapsed time for assessment
