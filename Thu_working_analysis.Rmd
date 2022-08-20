@@ -353,8 +353,10 @@ for (i in gain_ind) {
     coord_flip() +
     theme_minimal()
   
-  # store variable importances as a data frame, will have list of data frames at the end
-  varimp_y1[[name]] <- as.data.frame(varImp(rf_fit)$importance)
+  # store variable importances as a data frame
+  df <- as.data.frame(varImp(rf_fit)$importance)
+  # arrange in descending order (most to least important), and put into list
+  varimp_y1[[name]] <- df %>% arrange(desc(Overall))
 }
 ```
 
