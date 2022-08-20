@@ -54,8 +54,9 @@ y1_child_obs <- y1_child_obs_raw %>%
   # what to do when there is only one student in the class?? will need to subtract one
   mutate(across(starts_with("o_c"), ~ ((sum(.x, na.rm = TRUE) - .x) / get('nclass')),
     .names = "{col}_classmean")) %>%
-  mutate(across(starts_with("o_c") & !ends_with("classmean"), ~ sqrt((sum(.x - get(str_c(cur_column(), '_classmean')), na.rm = TRUE)^2 - (.x - get(str_c(cur_column(),'_classmean')))^2) / get('nclass')), 
-                .names = "{col}_class_sd")) %>%
+  # hypothesis that some of these are throwing NaNs due to float issues and square root 
+  # of negative numbers -- use variance instead of sd
+  mutate(across(starts_with("o_c") & !ends_with("classmean"), ~ sqrt((sum((.x - get(str_c(cur_column(), '_classmean')))^2) - (.x - get(str_c(cur_column(),'_classmean')))^2) / get('nclass')), .names = "{col}_classsd")) %>%
   ungroup
 
 #Re-format the teacher data so that it is one row per class
@@ -94,21 +95,25 @@ mean(y2_coverpage_obs$classid %in% y1_coverpage_obs$classid)
 
 #Re-format the child data so that it is one row per child
 y2_child_obs <- y2_child_obs_raw %>%
+ mutate(cid = ifelse(childid == "N/A", o_c_uniqueid, childid)) %>%
   group_by(cid, classid) %>%
   mutate(nsweeps = n()) %>%
   mutate_at(vars(o_c_verbal:o_c_focus), as.character) %>% 
   select(c(classid, nsweeps, o_c_verbal:o_c_focus)) %>%
   dummy_cols(select_columns = c("o_c_verbal", "o_c_towhom", "o_c_schedule", "o_c_interaction", "o_c_typetask", "o_c_involvement", "o_c_focus"),
              remove_selected_columns = TRUE) %>% 
-  group_by(cid, classid) %>%
-  summarize(across(everything(),  ~ mean(.x, na.rm = TRUE))) %>%
+  group_by(classid, cid) %>%
+  # replaced everything() with nsweeps:last_col()
+  summarize(across(nsweeps:last_col(), ~ mean(.x, na.rm = TRUE))) %>%
   filter(nsweeps >= 10 ) %>% #THIS IS AN ARBITRARY PARAMETER
   group_by(classid) %>%
   mutate(nclass = n()) %>%
-  # changed this so that the leave-out mean is not hard coded (also so that there 
-  # are no longer NaNs in the class mean)
-  mutate(across(starts_with("o_c"), ~ ((sum(.x, na.rm = TRUE) - .x) / (n() - 1)),
+  # what to do when there is only one student in the class?? will need to subtract one
+  mutate(across(starts_with("o_c"), ~ ((sum(.x, na.rm = TRUE) - .x) / get('nclass')),
     .names = "{col}_classmean")) %>%
+  # hypothesis that some of these are throwing NaNs due to float issues and square root 
+  # of negative numbers -- use variance instead of sd
+  mutate(across(starts_with("o_c") & !ends_with("classmean"), ~ sqrt((sum((.x - get(str_c(cur_column(), '_classmean')))^2) - (.x - get(str_c(cur_column(),'_classmean')))^2) / get('nclass')), .names = "{col}_classsd")) %>%
   ungroup
 
 #Re-format the teacher data so that it is one row per class
