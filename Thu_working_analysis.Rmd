@@ -273,13 +273,14 @@ gain_ind <- which(startsWith(colnames(outcomes_and_obs_full_y1), "gain"))
 
 models_y1 <- list()
 coefs_y1 <- list()
-
+# double check that the number of rows matches up with number of non-NAs
 for (i in gain_ind) {
   name <- names(outcomes_and_obs_full_y1)[i]
   df_analysis <- outcomes_and_obs_full_y1 %>%
     filter(!is.na(outcomes_and_obs_full_y1[[name]])) %>%
     select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype))
   print(name)
+  print(sum(!is.na(outcomes_and_obs_full_y1[[name]])))
   # double check that this is okay
   options(na.action="na.pass")
   x = model.matrix(as.formula(paste(name, "~ .")), data = df_analysis)
@@ -306,6 +307,14 @@ for (i in gain_ind) {
 
 ```
 
+```{r}
+
+for (i in gain_ind) {
+  name
+  hist(outcomes_and_obs_full_y1[, i])
+}
+```
+
 ```{r y1 pulling most predictive covariates}
 # loop through the names associated with each outcome -- add 1 to corresponding entry
 count_coefs_y1 <- list()
@@ -324,6 +333,7 @@ for (outcome in coefs_y1) {
 
 ```{r loop rf_test year1, echo=TRUE, fig.height=8}
 varimp_y1 <- list()
+# NOTE: change to full data set here
 test_data <- head(outcomes_and_obs_full_y1, 100)
 # make sure this works with small subset of data
 for (i in gain_ind) {
@@ -379,6 +389,9 @@ for (i in gain_ind) {
 # look for date in the cleaning process -- flag it and let Jonathan take closer look
 
 ## 4 is a priority, plus other things we discussed (on google doc)
+
+# comparing random forest and lasso results -- scatter the absolute value of coefficients (double check if both are standardized -- if not, adjust!) -- each point is a predictor 
+# should hopefully see some 
 ```
 
 
