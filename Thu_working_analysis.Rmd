@@ -282,7 +282,7 @@ for (i in gain_ind) {
   print(name)
   print(sum(!is.na(outcomes_and_obs_full_y1[[name]])))
   # double check that this is okay
-  options(na.action="na.pass")
+  # options(na.action="na.pass")
   x = model.matrix(as.formula(paste(name, "~ .")), data = df_analysis)
   
   y = df_analysis[[name]]
@@ -317,6 +317,7 @@ for (i in gain_ind) {
 
 ```{r y1 pulling most predictive covariates}
 # loop through the names associated with each outcome -- add 1 to corresponding entry
+
 count_coefs_y1 <- list()
 for (outcome in coefs_y1) {
   for (name in names(outcome)) {
@@ -371,8 +372,50 @@ for (i in gain_ind) {
 ```
 
 
-```{r}
-# need to eventually have something that'll tally up the most xx important variables (check i with Jonathan)
+```{r comparison year1, echo=TRUE, fig.height=8}
+# comparing lasso and random forest results, for year 1
+outcomes <- names(outcomes_and_obs_full_y1)[gain_ind]
+
+for (outcome in outcomes) {
+  # print(outcome)
+  lasso_coefs <- coefs_y1[[outcome]]
+  # get rid of intercept
+  if (length(lasso_coefs) == 1) {
+    next
+  }
+  lasso_coefs <- lasso_coefs[2:length(lasso_coefs)]
+  rf_coefs <- varimp_y1[[outcome]]
+  # this will be in the order of the coefficients in the lasso model
+  overlap <- rf_coefs[names(lasso_coefs),]
+  x <- rep(NA, length(lasso_coefs))
+  for (i in 1:length(lasso_coefs)) {
+    x[i] <- abs(lasso_coefs[[i]])
+  }
+  plot(x, overlap, xlab='lasso coefficients', ylab='rf variable importance', main=paste('y1', outcome))
+}
+```
+
+
+```{r comparison year2, echo=TRUE, fig.height=8}
+outcomes <- names(outcomes_and_obs_full_y2)[gain_ind]
+
+for (outcome in outcomes) {
+  # print(outcome)
+  lasso_coefs <- coefs_y2[[outcome]]
+  # get rid of intercept
+  if (length(lasso_coefs) == 1) {
+    next
+  }
+  lasso_coefs <- lasso_coefs[2:length(lasso_coefs)]
+  rf_coefs <- varimp_y2[[outcome]]
+  # this will be in the order of the coefficients in the lasso model
+  overlap <- rf_coefs[names(lasso_coefs),]
+  x <- rep(NA, length(lasso_coefs))
+  for (i in 1:length(lasso_coefs)) {
+    x[i] <- abs(lasso_coefs[[i]])
+  }
+  plot(x, overlap, xlab='lasso coefficients', ylab='rf variable importance', main=paste('y2', outcome))
+}
 ```
 
 
@@ -392,6 +435,19 @@ for (i in gain_ind) {
 
 # comparing random forest and lasso results -- scatter the absolute value of coefficients (double check if both are standardized -- if not, adjust!) -- each point is a predictor 
 # should hopefully see some 
+```
+
+```{r}
+# As far as I can tell, variable importance is measuring either: a) the percentage that the prediction error increases when the variable is removed, or b) the change in the purity of each node when the variable is removed. (Averaged over all trees in the forest.) Neither of these is a probability, so there's no reason they should add up to 100%.
+
+# I'm not sure if I will try to "unstandardize" the random forest results. I will use the magnitude of the coefficients as a proxy for "variable importance," and scatter that against the variable importance (when variables are present in  both variable selection methods)
+
+# todo:
+# 1. extract coefficient values for each selected variable from lasso - maybe store in data frame?
+# 2. find a way to extract numeric value of variable importance - also store in data frame
+# 3. merge data frames -- thinking one data frame per variable? so list of data frames
+# 4. scatter values against each other
+
 ```
 
 
