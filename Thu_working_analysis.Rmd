@@ -29,7 +29,7 @@ For each child in the COP data, we calculate:
 
 We then calculate the class average of the TOP indicators for the adults in the class by averaging across sweeps, and merge this data (one to many) with the child-level data. This merged data set contains XXX children in XXX classes
 
-```{r y1_obs, warning=FALSE}
+```{r y1_obs, warning=FALSE, cache=TRUE}
 #Input the Year One long child and teacher observation data 
 y1_child_obs_raw <- read.dta13("y1o_c_long.dta")
 y1_teacher_obs_raw <- read.dta13("y1o_t_long.dta")
@@ -91,7 +91,7 @@ table(y1_teacher_obs$nadult)
 ```
 
 
-```{r y2_obs, warning=FALSE}
+```{r y2_obs, warning=FALSE, cache=TRUE}
 #Input the Year One long child and teacher observation data 
 y2_child_obs_raw <- read.dta13("y2o_c_long.dta")
 y2_teacher_obs_raw <- read.dta13("y2o_t_long.dta")
@@ -156,7 +156,7 @@ y2_obs <- left_join(y2_child_obs, y2_teacher_obs, by = "classid")
 
 Below we now input the child-level outcome data. We focus on the outcomes that Emily suggested, and extract the year 1 and year 2 values for each child and then merge to create a single dataset. 
 
-```{r child.outcomes, warning=FALSE}
+```{r child.outcomes, warning=FALSE, cache=TRUE}
 #Get Year 1 and Year 2 child data
 y1_child_outcomes_raw <- read.dta13("y1c.dta")
 y2_child_outcomes_raw <- read.dta13("y2c.dta")
@@ -194,7 +194,7 @@ child_outcomes <- merge(y1_child_outcomes, y2_child_outcomes, by = "cid") %>%
 
 Finally, we merge together the Year 1 observation data with the Year 1 & 2 child outcome data and add in care type. We omit observations that have no classroom observation resulting in a total analytic dataframe of 1169 observations of 64 variables. 
 
-```{r merge.obs.outcomes y1 p1}
+```{r merge.obs.outcomes y1 p1, cache=TRUE}
 #Merge in the outcomes data 
 
 y1_obs <- y1_obs %>%
@@ -244,7 +244,7 @@ replace.na <- function(var){
 
 
 
-```{r merge.obs.outcomes y1 p2}
+```{r merge.obs.outcomes y1 p2, cache=TRUE}
 # names(outcomes_and_obs_full_y1)
 outcomes_and_obs_full_y1 <- outcomes_and_obs_full_y1 %>% 
   mutate_at(vars("o_c_verbal_Fuss/Cry (FC)":actualtype), replace.na)
@@ -261,7 +261,7 @@ dim(outcomes_and_obs_full_y1)
 
 We will first try a cross-validated LASSO, which will aggressively remove variables that do little to improve the predictive accuracy of the model.  
 
-```{r loop lasso year1, echo=TRUE, fig.height=8}
+```{r loop lasso year1, echo=TRUE, fig.height=8, cache=TRUE}
 # looping through gain variables
 
 # initiate two lists to store results of each model (for the graph and the coefficients)
@@ -307,7 +307,7 @@ for (i in gain_ind) {
 
 ```
 
-```{r}
+```{r, fig.height=8, cache=TRUE}
 
 for (i in gain_ind) {
   name
@@ -315,7 +315,7 @@ for (i in gain_ind) {
 }
 ```
 
-```{r y1 pulling most predictive covariates}
+```{r y1 pulling most predictive covariates, cache=TRUE}
 # loop through the names associated with each outcome -- add 1 to corresponding entry
 
 count_coefs_y1 <- list()
@@ -332,7 +332,7 @@ for (outcome in coefs_y1) {
 
 
 
-```{r loop rf_test year1, echo=TRUE, fig.height=8}
+```{r loop rf_test year1, echo=TRUE, fig.height=8, cache=TRUE}
 varimp_y1 <- list()
 # NOTE: change to full data set here
 test_data <- head(outcomes_and_obs_full_y1, 100)
@@ -372,7 +372,7 @@ for (i in gain_ind) {
 ```
 
 
-```{r comparison year1, echo=TRUE, fig.height=8}
+```{r comparison year1, echo=TRUE, fig.height=8, cache=TRUE}
 # comparing lasso and random forest results, for year 1
 outcomes <- names(outcomes_and_obs_full_y1)[gain_ind]
 
@@ -428,7 +428,7 @@ for (outcome in outcomes) {
 ```
 
 
-```{r merge.obs.outcomes y2 p1}
+```{r merge.obs.outcomes y2 p1, cache=TRUE}
 #Merge in the outcomes data 
 #  Try Y2 observation data instead of y1, and compare results
 
@@ -469,7 +469,7 @@ outcomes_and_obs_full_y2 <- outcomes_and_obs_full_y2 %>%
 ```
 
 
-```{r merge.obs.outcomes y2 p2}
+```{r merge.obs.outcomes y2 p2, cache=TRUE}
 #There are some issues with NA and NaN in the observation data that will mess up our analysis. We will replace these with the mean of the variables
 
 replace.na <- function(var){
@@ -492,7 +492,7 @@ dim(outcomes_and_obs_full_y2)
 
 We will first try a cross-validated LASSO, which will aggressively remove variables that do little to improve the predictive accuracy of the model.  
 
-```{r loop lasso y2, echo=TRUE, fig.height=8}
+```{r loop lasso y2, echo=TRUE, fig.height=8, cache=TRUE}
 set.seed(4224)
 
 gain_ind <- which(startsWith(colnames(outcomes_and_obs_full_y2), "gain"))
@@ -529,7 +529,7 @@ for (i in gain_ind) {
 }
 ```
 
-```{r y2 pulling most predictive covariates}
+```{r y2 pulling most predictive covariates, cache=TRUE}
 # loop through the names associated with each outcome -- add 1 to corresponding entry
 count_coefs_y2 <- list()
 for (outcome in coefs_y2) {
@@ -545,7 +545,7 @@ for (outcome in coefs_y2) {
 
 
 
-```{r loop rf_test y2, echo=TRUE, fig.height=8}
+```{r loop rf_test y2, echo=TRUE, fig.height=8, cache=TRUE}
 
 varimp_y2 <- list()
 # NOTE: change to full data set here
@@ -586,7 +586,7 @@ for (i in gain_ind) {
 ```
 
 
-```{r comparison year2, echo=TRUE, fig.height=8}
+```{r comparison year2, echo=TRUE, fig.height=8, cache=TRUE}
 outcomes <- names(outcomes_and_obs_full_y2)[gain_ind]
 
 for (outcome in outcomes) {
@@ -611,8 +611,6 @@ for (outcome in outcomes) {
 ```{r multiple predictors, echo=TRUE, fig.height=8}
 # Try a model with a bunch of predictors from Y1 Y2 -- question: what would be predicted, then?
 # since it looks like the gains are different from year to year
-
-outcomes_and_obs_full_y2
 ```
 
 
