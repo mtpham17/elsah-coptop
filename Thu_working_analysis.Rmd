@@ -396,29 +396,6 @@ for (outcome in outcomes) {
 ```
 
 
-```{r comparison year2, echo=TRUE, fig.height=8}
-outcomes <- names(outcomes_and_obs_full_y2)[gain_ind]
-
-for (outcome in outcomes) {
-  # print(outcome)
-  lasso_coefs <- coefs_y2[[outcome]]
-  # get rid of intercept
-  if (length(lasso_coefs) == 1) {
-    next
-  }
-  lasso_coefs <- lasso_coefs[2:length(lasso_coefs)]
-  rf_coefs <- varimp_y2[[outcome]]
-  # this will be in the order of the coefficients in the lasso model
-  overlap <- rf_coefs[names(lasso_coefs),]
-  x <- rep(NA, length(lasso_coefs))
-  for (i in 1:length(lasso_coefs)) {
-    x[i] <- abs(lasso_coefs[[i]])
-  }
-  plot(x, overlap, xlab='lasso coefficients', ylab='rf variable importance', main=paste('y2', outcome))
-}
-```
-
-
 ```{r next steps}
 #NOTES FROM MEETINGI 8/8
 #1. Try Y2 observation data instead of Y1, and compare results
@@ -569,29 +546,29 @@ for (outcome in coefs_y2) {
 
 
 ```{r loop rf_test y2, echo=TRUE, fig.height=8}
-# had to use 0 for this replace.na function? not sure what this entails...
-replace.na <- function(var){
-  ifelse(is.na(var) | is.nan(var), 0, var)
-}
 
+varimp_y2 <- list()
+# NOTE: change to full data set here
+test_data <- head(outcomes_and_obs_full_y2, 100)
+# make sure this works with small subset of data
 for (i in gain_ind) {
-  name <- names(outcomes_and_obs_full_y1)[i]
-  df_analysis <- outcomes_and_obs_full_y1 %>%
-    filter(!is.na(outcomes_and_obs_full_y1[[name]])) %>%
-    select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype)) %>%
+  name <- names(outcomes_and_obs_full_y2)[i]
+  df_analysis <- test_data %>%
+    filter(!is.na(test_data[[name]])) %>%
+    select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype)) 
     # ask about verbal_fuss vs o_c_verbal_Talk(T) (original)
-    mutate_at(vars("o_c_verbal_Fuss/Cry (FC)":actualtype), replace.na)
+    # mutate_at(vars("o_c_verbal_Fuss/Cry (FC)":actualtype), replace.na)
   print(name)
   # options(na.action="na.pass")
   x = model.matrix(as.formula(paste(name, "~ .")), data = df_analysis)
   
   # Fit the random forest model
-  rf_fit <- train(as.formula(paste(name, "~ ."), #Use all variables in the prediction
+  rf_fit <- train(as.formula(paste(name, "~ .")), #Use all variables in the prediction
                 data = df_analysis, #Use the training data
                 method = "ranger",
                 importance = "permutation",
-                num.trees = 500,
-                na.action=na.pass))
+                # ntree = 500,
+                na.action=na.pass)
                 
   varImp(rf_fit) %>%
     pluck(1) %>%
@@ -600,9 +577,36 @@ for (i in gain_ind) {
     geom_col(fill = "grey75") +
     coord_flip() +
     theme_minimal()
+  
+  # store variable importances as a data frame
+  df <- as.data.frame(varImp(rf_fit)$importance)
+  # arrange in descending order (most to least important), and put into list
+  varimp_y2[[name]] <- df %>% arrange(desc(Overall))
 }
 ```
 
+
+```{r comparison year2, echo=TRUE, fig.height=8}
+outcomes <- names(outcomes_and_obs_full_y2)[gain_ind]
+
+for (outcome in outcomes) {
+  # print(outcome)
+  lasso_coefs <- coefs_y2[[outcome]]
+  # get rid of intercept
+  if (length(lasso_coefs) == 1) {
+    next
+  }
+  lasso_coefs <- lasso_coefs[2:length(lasso_coefs)]
+  rf_coefs <- varimp_y2[[outcome]]
+  # this will be in the order of the coefficients in the lasso model
+  overlap <- rf_coefs[names(lasso_coefs),]
+  x <- rep(NA, length(lasso_coefs))
+  for (i in 1:length(lasso_coefs)) {
+    x[i] <- abs(lasso_coefs[[i]])
+  }
+  plot(x, overlap, xlab='lasso coefficients', ylab='rf variable importance', main=paste('y2', outcome))
+}
+```
 
 ```{r multiple predictors, echo=TRUE, fig.height=8}
 # Try a model with a bunch of predictors from Y1 Y2 -- question: what would be predicted, then?
