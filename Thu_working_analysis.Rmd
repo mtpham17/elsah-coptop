@@ -42,7 +42,7 @@ y1_child_obs <- y1_child_obs_raw %>%
   group_by(cid, classid) %>%
   mutate(nsweeps = n()) %>%
   mutate_at(vars(o_c_verbal:o_c_focus), as.character) %>% 
-  select(c(classid, nsweeps, o_c_verbal:o_c_focus)) %>%
+  dplyr::select(c(classid, nsweeps, o_c_verbal:o_c_focus)) %>%
   dummy_cols(select_columns = c("o_c_verbal", "o_c_towhom", "o_c_schedule", "o_c_interaction", "o_c_typetask", "o_c_involvement", "o_c_focus"),
              remove_selected_columns = TRUE) %>% 
   group_by(classid, cid) %>%
@@ -79,7 +79,7 @@ y1_teacher_obs <- y1_teacher_obs_raw %>%
                                 "o_t_task_o", "o_t_instruct", "o_t_focus_o", 
                                 "o_t_tone_o", "o_t_attention_o", "o_t_es_o")),
            ~ mean(.x, na.rm = TRUE))) %>%
-  select(-ends_with("_")) %>% 
+  dplyr::select(-ends_with("_")) %>% 
   ungroup
 
 #Merge teacher and child observations 
@@ -105,7 +105,7 @@ y2_child_obs <- y2_child_obs_raw %>%
   group_by(cid, classid) %>%
   mutate(nsweeps = n()) %>%
   mutate_at(vars(o_c_verbal:o_c_focus), as.character) %>% 
-  select(c(classid, nsweeps, o_c_verbal:o_c_focus)) %>%
+  dplyr::select(c(classid, nsweeps, o_c_verbal:o_c_focus)) %>%
   dummy_cols(select_columns = c("o_c_verbal", "o_c_towhom", "o_c_schedule", "o_c_interaction", "o_c_typetask", "o_c_involvement", "o_c_focus"),
              remove_selected_columns = TRUE) %>% 
   group_by(classid, cid) %>%
@@ -142,7 +142,7 @@ y2_teacher_obs <- y2_teacher_obs_raw %>%
                                 "o_t_task_o", "o_t_instruct", "o_t_focus_o", 
                                 "o_t_tone_o", "o_t_attention_o", "o_t_es_o")),
             ~ mean(.x, na.rm = TRUE))) %>%
-  select(-ends_with("_")) %>% 
+  dplyr::select(-ends_with("_")) %>% 
   ungroup
 
 #Extract the caretype from the observation sheet
@@ -163,13 +163,13 @@ y2_child_outcomes_raw <- read.dta13("y2c.dta")
 
 #Rename all y1 variables and y2 variables so we don't lose them when merging
 y1_child_outcomes <-  y1_child_outcomes_raw %>% 
-  select(cid, c_mefs_str, c_pt_pcorrect, c_ltr_cogsoc_comp, c_ltr_emo_comp, 
+  dplyr::select(cid, c_mefs_str, c_pt_pcorrect, c_ltr_cogsoc_comp, c_ltr_emo_comp, 
          c_pra_total, c_pbsa_total, c_quils_total_raw, c_wjlw_str, c_wjap_str) %>% 
   rename_all( ~ paste0("y1_", .x)) %>% 
   mutate(cid = as.character(y1_cid))
 
 y2_child_outcomes <-  y2_child_outcomes_raw %>% 
-  select(cid, c_mefs_str, c_pt_pcorrect, c_ltr_cogsoc_comp, c_ltr_emo_comp, 
+  dplyr::select(cid, c_mefs_str, c_pt_pcorrect, c_ltr_cogsoc_comp, c_ltr_emo_comp, 
          c_pbsa_allgrades_total, c_pra_allgrades_total, c_quils_total_raw, 
          c_wjlw_str, c_wjap_str, c_age_cat_test, c_age_test) %>% 
   rename(c_pra_total = c_pra_allgrades_total,
@@ -196,7 +196,6 @@ Finally, we merge together the Year 1 observation data with the Year 1 & 2 child
 
 ```{r merge.obs.outcomes y1 p1, cache=TRUE}
 #Merge in the outcomes data 
-
 y1_obs <- y1_obs %>%
   filter(!is.na(cid)) %>%
   mutate(cid = as.numeric(cid))
@@ -219,11 +218,11 @@ outcomes_and_obs_full_y1 <- left_join(outcomes_and_obs_y1, caretype, by = "cid")
 
 #Remove Y1 and Y2 data for cleanliness
 outcomes_and_obs_full_y1 <- outcomes_and_obs_full_y1 %>% 
-  select(-starts_with(c("y1", "y2")))
+  dplyr::select(-starts_with(c("y1", "y2")))
 
 #Remove some irrelevant variables
 outcomes_and_obs_full_y1 <- outcomes_and_obs_full_y1 %>% 
-  select(-c(famid, dob:dob_uncertain, actual_fcc:hasobservation)) %>% 
+  dplyr::select(-c(famid, dob:dob_uncertain, actual_fcc:hasobservation)) %>% 
   mutate(caretype = as.factor(caretype),
          actualtype = as.factor(actualtype))
 ```
@@ -278,7 +277,7 @@ for (i in gain_ind) {
   name <- names(outcomes_and_obs_full_y1)[i]
   df_analysis <- outcomes_and_obs_full_y1 %>%
     filter(!is.na(outcomes_and_obs_full_y1[[name]])) %>%
-    select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype))
+    dplyr::select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype))
   print(name)
   print(sum(!is.na(outcomes_and_obs_full_y1[[name]])))
   # double check that this is okay
@@ -308,7 +307,6 @@ for (i in gain_ind) {
 ```
 
 ```{r, fig.height=8, cache=TRUE}
-
 for (i in gain_ind) {
   name
   hist(outcomes_and_obs_full_y1[, i])
@@ -333,42 +331,53 @@ for (outcome in coefs_y1) {
 
 
 ```{r loop rf_test year1, echo=TRUE, fig.height=8, cache=TRUE}
-varimp_y1 <- list()
-# NOTE: change to full data set here
-test_data <- head(outcomes_and_obs_full_y1, 100)
-# make sure this works with small subset of data
-for (i in gain_ind) {
-  name <- names(outcomes_and_obs_full_y1)[i]
-  df_analysis <- test_data %>%
-    filter(!is.na(test_data[[name]])) %>%
-    select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype)) 
-    # ask about verbal_fuss vs o_c_verbal_Talk(T) (original)
-    # mutate_at(vars("o_c_verbal_Fuss/Cry (FC)":actualtype), replace.na)
-  print(name)
-  # options(na.action="na.pass")
-  x = model.matrix(as.formula(paste(name, "~ .")), data = df_analysis)
-  
-  # Fit the random forest model
-  rf_fit <- train(as.formula(paste(name, "~ .")), #Use all variables in the prediction
-                data = df_analysis, #Use the training data
-                method = "ranger",
-                importance = "permutation",
-                # ntree = 500,
-                na.action=na.pass)
-                
-  varImp(rf_fit) %>%
-    pluck(1) %>%
-    rownames_to_column("var") %>%
-    ggplot(aes(x = reorder(var, Overall), y = Overall)) +
-    geom_col(fill = "grey75") +
-    coord_flip() +
-    theme_minimal()
-  
-  # store variable importances as a data frame
-  df <- as.data.frame(varImp(rf_fit)$importance)
-  # arrange in descending order (most to least important), and put into list
-  varimp_y1[[name]] <- df %>% arrange(desc(Overall))
-}
+# varimp_y1 <- list()
+# rf_models <- list()
+# rf_plots <- list()
+# test_data <- outcomes_and_obs_full_y1
+# 
+# # make sure this works with small subset of data
+# for (i in gain_ind) {
+#   name <- names(outcomes_and_obs_full_y1)[i]
+#   df_analysis <- test_data %>%
+#     filter(!is.na(test_data[[name]])) %>%
+#     dplyr::select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype)) 
+#     # ask about verbal_fuss vs o_c_verbal_Talk(T) (original)
+#     # mutate_at(vars("o_c_verbal_Fuss/Cry (FC)":actualtype), replace.na)
+#   print(name)
+#   # options(na.action="na.pass")
+#   x = model.matrix(as.formula(paste(name, "~ .")), data = df_analysis)
+#   
+#   # Fit the random forest model
+#   rf_fit <- train(as.formula(paste(name, "~ .")), #Use all variables in the prediction
+#                 data = df_analysis, #Use the training data
+#                 method = "ranger",
+#                 importance = "permutation",
+#                 # ntree = 500,
+#                 na.action=na.pass)
+# 
+#   rf_plots[[name]] <- varImp(rf_fit) %>%
+#     pluck(1) %>%
+#     rownames_to_column("var") %>%
+#     ggplot(aes(x = reorder(var, Overall), y = Overall)) +
+#     geom_col(fill = "grey75") +
+#     coord_flip() +
+#     theme_minimal()
+#   
+#   # Store the full RF model 
+#   rf_models[[name]] <- rf_fit
+#   
+#   # store variable importances as a data frame
+#   df <- as.data.frame(varImp(rf_fit)$importance)
+#   # arrange in descending order (most to least important), and put into list
+#   varimp_y1[[name]] <- df %>% arrange(desc(Overall))
+# }
+
+# rfoutput <- list(varimp_y1, rf_models, rf_plots)
+
+# saveRDS(rfoutput, file = "rfoutput.RDS")
+
+
 ```
 
 
@@ -456,12 +465,12 @@ outcomes_and_obs_full_y2 <- left_join(outcomes_and_obs_y2, caretype, by = "cid")
 
 #Remove Y1 and Y2 data for cleanliness
 outcomes_and_obs_full_y2 <- outcomes_and_obs_full_y2 %>% 
-  select(-starts_with(c("y1", "y2")))
+  dplyr::select(-starts_with(c("y1", "y2")))
 
 #Remove some irrelevant variables
 outcomes_and_obs_full_y2 <- outcomes_and_obs_full_y2 %>% 
   # seems like provid is the same thing as famid in this case?
-  select(-c(provid, dob, actualtype_fcc:hasobservation)) %>% 
+  dplyr::select(-c(provid, dob, actualtype_fcc:hasobservation)) %>% 
   mutate(caretype = as.factor(caretype),
          actualtype = as.factor(actualtype))
 
@@ -504,7 +513,7 @@ for (i in gain_ind) {
   name <- names(outcomes_and_obs_full_y2)[i]
   df_analysis <- outcomes_and_obs_full_y2 %>%
     filter(!is.na(outcomes_and_obs_full_y2[[name]])) %>%
-    select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype))
+    dplyr::select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype))
   print(name)
   options(na.action="na.pass")
   x = model.matrix(as.formula(paste(name, "~ .")), data = df_analysis)
@@ -555,7 +564,7 @@ for (i in gain_ind) {
   name <- names(outcomes_and_obs_full_y2)[i]
   df_analysis <- test_data %>%
     filter(!is.na(test_data[[name]])) %>%
-    select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype)) 
+    dplyr::select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype)) 
     # ask about verbal_fuss vs o_c_verbal_Talk(T) (original)
     # mutate_at(vars("o_c_verbal_Fuss/Cry (FC)":actualtype), replace.na)
   print(name)
