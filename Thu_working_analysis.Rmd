@@ -42,7 +42,7 @@ y1_child_obs <- y1_child_obs_raw %>%
   group_by(cid, classid) %>%
   mutate(nsweeps = n()) %>%
   mutate_at(vars(o_c_verbal:o_c_focus), as.character) %>% 
-  dplyr::select(c(classid, nsweeps, o_c_verbal:o_c_focus)) %>%
+  dplyr::select(c(classid, nsweeps, o_c_verbal:o_c_focus, starts_with("c_m8"))) %>%
   dummy_cols(select_columns = c("o_c_verbal", "o_c_towhom", "o_c_schedule", "o_c_interaction", "o_c_typetask", "o_c_involvement", "o_c_focus"),
              remove_selected_columns = TRUE) %>% 
   group_by(classid, cid) %>%
@@ -76,8 +76,8 @@ y1_teacher_obs <- y1_teacher_obs_raw %>%
     nsweeps = n(),
     nadult = length(unique(o_t_uniqueid)),
     across(starts_with(c("o_t_verbal_o", "o_t_whom_o", "o_t_schedule_o", 
-                                "o_t_task_o", "o_t_instruct", "o_t_focus_o", 
-                                "o_t_tone_o", "o_t_attention_o", "o_t_es_o")),
+                         "o_t_task_o", "o_t_instruct", "o_t_focus_o", 
+                         "o_t_tone_o", "o_t_attention_o", "o_t_es_o", "m8")),
            ~ mean(.x, na.rm = TRUE))) %>%
   dplyr::select(-ends_with("_")) %>% 
   ungroup
@@ -86,6 +86,7 @@ y1_teacher_obs <- y1_teacher_obs_raw %>%
 y1_obs <- left_join(y1_child_obs, y1_teacher_obs, by = "classid")
 
 ```
+
 ```{r}
 table(y1_teacher_obs$nadult)
 ```
@@ -105,7 +106,7 @@ y2_child_obs <- y2_child_obs_raw %>%
   group_by(cid, classid) %>%
   mutate(nsweeps = n()) %>%
   mutate_at(vars(o_c_verbal:o_c_focus), as.character) %>% 
-  dplyr::select(c(classid, nsweeps, o_c_verbal:o_c_focus)) %>%
+  dplyr::select(c(classid, nsweeps, o_c_verbal:o_c_focus, starts_with("c_m8"))) %>%
   dummy_cols(select_columns = c("o_c_verbal", "o_c_towhom", "o_c_schedule", "o_c_interaction", "o_c_typetask", "o_c_involvement", "o_c_focus"),
              remove_selected_columns = TRUE) %>% 
   group_by(classid, cid) %>%
@@ -139,8 +140,8 @@ y2_teacher_obs <- y2_teacher_obs_raw %>%
     nsweeps = n(),
     nadult = length(unique(o_t_uniqueid)),
     across(starts_with(c("o_t_verbal_o", "o_t_whom_o", "o_t_schedule_o", 
-                                "o_t_task_o", "o_t_instruct", "o_t_focus_o", 
-                                "o_t_tone_o", "o_t_attention_o", "o_t_es_o")),
+                         "o_t_task_o", "o_t_instruct", "o_t_focus_o", 
+                         "o_t_tone_o", "o_t_attention_o", "o_t_es_o", "m8")),
             ~ mean(.x, na.rm = TRUE))) %>%
   dplyr::select(-ends_with("_")) %>% 
   ungroup
@@ -225,6 +226,7 @@ outcomes_and_obs_full_y1 <- outcomes_and_obs_full_y1 %>%
   dplyr::select(-c(famid, dob:dob_uncertain, actual_fcc:hasobservation)) %>% 
   mutate(caretype = as.factor(caretype),
          actualtype = as.factor(actualtype))
+
 ```
 
 ```{r}
@@ -237,16 +239,17 @@ getmode <- function(x) {
 
 replace.na <- function(var){
   ifelse(is.na(var) | is.nan(var), 
-         ifelse(is.factor(var), getmode(var), mean(var)), var)
+         ifelse(is.factor(var), getmode(var), mean(var, na.rm = TRUE)), var)
 }
 ```
 
 
 
 ```{r merge.obs.outcomes y1 p2, cache=TRUE}
+
 # names(outcomes_and_obs_full_y1)
 outcomes_and_obs_full_y1 <- outcomes_and_obs_full_y1 %>% 
-  mutate_at(vars("o_c_verbal_Fuss/Cry (FC)":actualtype), replace.na)
+  mutate_at(vars(c_m8_goal_1:actualtype), replace.na)
 
 # what is o_t_sched_t supposed to be for? replacing with actualtype for now just to run analysis
 
@@ -254,9 +257,26 @@ outcomes_and_obs_full_y1 <- outcomes_and_obs_full_y1 %>%
 # originally was o_c_verbal_talk:o_t_sched_t
 
 dim(outcomes_and_obs_full_y1)
+
 ```
 
 ## Analysis
+
+Before anything, let's just see how the "Magic 8" variables concord predict gains? 
+
+```{r magic8, echo=TRUE, fig.height=8, cache=TRUE}
+
+m8 <- outcomes_and_obs_full_y1 %>% 
+  dplyr::select(starts_with(c("gain", "m8", "c_m8")))
+
+library(corrplot)
+
+m8cor <- cor(m8, 
+    use = "pairwise.complete.obs")
+
+corrplot(m8cor)
+
+```
 
 We will first try a cross-validated LASSO, which will aggressively remove variables that do little to improve the predictive accuracy of the model.  
 
@@ -269,15 +289,15 @@ We will first try a cross-validated LASSO, which will aggressively remove variab
 set.seed(4224)
 
 gain_ind <- which(startsWith(colnames(outcomes_and_obs_full_y1), "gain"))
-
 models_y1 <- list()
 coefs_y1 <- list()
+
 # double check that the number of rows matches up with number of non-NAs
 for (i in gain_ind) {
   name <- names(outcomes_and_obs_full_y1)[i]
   df_analysis <- outcomes_and_obs_full_y1 %>%
     filter(!is.na(outcomes_and_obs_full_y1[[name]])) %>%
-    dplyr::select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype))
+    dplyr::select(c(name, c_m8_goal_1:actualtype))
   print(name)
   print(sum(!is.na(outcomes_and_obs_full_y1[[name]])))
   # double check that this is okay
@@ -314,8 +334,8 @@ for (i in gain_ind) {
 ```
 
 ```{r y1 pulling most predictive covariates, cache=TRUE}
-# loop through the names associated with each outcome -- add 1 to corresponding entry
 
+# loop through the names associated with each outcome -- add 1 to corresponding entry
 count_coefs_y1 <- list()
 for (outcome in coefs_y1) {
   for (name in names(outcome)) {
@@ -326,56 +346,62 @@ for (outcome in coefs_y1) {
                                      count_coefs_y1[[name]] + 1)
   }
 }
-```
+
+#Convert output to a df for plotting and such
+count_coefs_y1 <- count_coefs_y1 %>% 
+  unlist() %>% 
+  as.data.frame()
+
+``` 
 
 
 
 ```{r loop rf_test year1, echo=TRUE, fig.height=8, cache=TRUE}
-# varimp_y1 <- list()
-# rf_models <- list()
-# rf_plots <- list()
-# test_data <- outcomes_and_obs_full_y1
-# 
-# # make sure this works with small subset of data
-# for (i in gain_ind) {
-#   name <- names(outcomes_and_obs_full_y1)[i]
-#   df_analysis <- test_data %>%
-#     filter(!is.na(test_data[[name]])) %>%
-#     dplyr::select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype)) 
-#     # ask about verbal_fuss vs o_c_verbal_Talk(T) (original)
-#     # mutate_at(vars("o_c_verbal_Fuss/Cry (FC)":actualtype), replace.na)
-#   print(name)
-#   # options(na.action="na.pass")
-#   x = model.matrix(as.formula(paste(name, "~ .")), data = df_analysis)
-#   
-#   # Fit the random forest model
-#   rf_fit <- train(as.formula(paste(name, "~ .")), #Use all variables in the prediction
-#                 data = df_analysis, #Use the training data
-#                 method = "ranger",
-#                 importance = "permutation",
-#                 # ntree = 500,
-#                 na.action=na.pass)
-# 
-#   rf_plots[[name]] <- varImp(rf_fit) %>%
-#     pluck(1) %>%
-#     rownames_to_column("var") %>%
-#     ggplot(aes(x = reorder(var, Overall), y = Overall)) +
-#     geom_col(fill = "grey75") +
-#     coord_flip() +
-#     theme_minimal()
-#   
-#   # Store the full RF model 
-#   rf_models[[name]] <- rf_fit
-#   
-#   # store variable importances as a data frame
-#   df <- as.data.frame(varImp(rf_fit)$importance)
-#   # arrange in descending order (most to least important), and put into list
-#   varimp_y1[[name]] <- df %>% arrange(desc(Overall))
-# }
+varimp_y1 <- list()
+rf_models <- list()
+rf_plots <- list()
+test_data <- outcomes_and_obs_full_y1
 
-# rfoutput <- list(varimp_y1, rf_models, rf_plots)
+# make sure this works with small subset of data
+for (i in gain_ind) {
+  name <- names(outcomes_and_obs_full_y1)[i]
+  df_analysis <- test_data %>%
+    filter(!is.na(test_data[[name]])) %>%
+    dplyr::select(c(name, "o_c_verbal_Fuss/Cry (FC)":actualtype))
+    # ask about verbal_fuss vs o_c_verbal_Talk(T) (original)
+    # mutate_at(vars("o_c_verbal_Fuss/Cry (FC)":actualtype), replace.na)
+  print(name)
+  # options(na.action="na.pass")
+  x = model.matrix(as.formula(paste(name, "~ .")), data = df_analysis)
 
-# saveRDS(rfoutput, file = "rfoutput.RDS")
+  # Fit the random forest model
+  rf_fit <- train(as.formula(paste(name, "~ .")), #Use all variables in the prediction
+                data = df_analysis, #Use the training data
+                method = "ranger",
+                importance = "permutation",
+                # ntree = 500,
+                na.action=na.pass)
+
+  rf_plots[[name]] <- varImp(rf_fit) %>%
+    pluck(1) %>%
+    rownames_to_column("var") %>%
+    ggplot(aes(x = reorder(var, Overall), y = Overall)) +
+    geom_col(fill = "grey75") +
+    coord_flip() +
+    theme_minimal()
+
+  # Store the full RF model
+  rf_models[[name]] <- rf_fit
+
+  # store variable importances as a data frame
+  df <- as.data.frame(varImp(rf_fit)$importance)
+  # arrange in descending order (most to least important), and put into list
+  varimp_y1[[name]] <- df %>% arrange(desc(Overall))
+}
+
+rfoutput <- list(varimp_y1, rf_models, rf_plots)
+
+saveRDS(rfoutput, file = "rfoutput.RDS")
 
 
 ```
