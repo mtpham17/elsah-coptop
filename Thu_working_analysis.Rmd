@@ -781,12 +781,25 @@ for (outcome in outcomes) {
 rf_y1_obj <- readRDS('/Users/thupham/Desktop/elsah-coptop/rfoutput.RDS')
 ```
 
+```{r actual outcomes, cache=TRUE, include=FALSE}
+proper_names <- list()
+proper_names[["gain_c_mefs_str"]] <- "MEFS Z-score"
+proper_names[["gain_c_pt_pcorrect"]] <- "Pencil Tap"
+proper_names[["gain_c_ltr_cogsoc_comp"]] <- "Leiter - Cognitive/Social"
+proper_names[["gain_c_ltr_emo_comp"]] <- "Leiter - Emotions/Regulation"
+proper_names[["gain_c_pbsa_total"]] <- "PALS BSA"
+proper_names[["gain_c_pra_total"]] <- "PALS RA"
+proper_names[["gain_c_quils_total_raw"]] <- "QUILS"
+proper_names[["gain_c_wjlw_str"]] <- "WJ Letter Word ID"
+proper_names[["gain_c_wjap_str"]] <- "WJ Applied Problems"
+```
 
-```{r comparison year1, echo=TRUE, fig.height=8, cache=TRUE, eval=FALSE}
+
+```{r comparison year1, echo=TRUE, fig.height=8, cache=TRUE}
 # comparing lasso and random forest results, for year 1
 outcomes <- names(outcomes_and_obs_full_y1)[gain_ind]
 varimp_y1 <- rf_y1_obj[[1]]
-comparison_df <- data.frame(matrix(ncol = 3, nrow = 0))
+comparison_df <- data.frame(matrix(ncol = 4, nrow = 0))
 
 for (outcome in outcomes) {
   # print(outcome)
@@ -806,13 +819,15 @@ for (outcome in outcomes) {
   for (i in 1:length(lasso_coefs)) {
     x[i] <- abs(lasso_coefs[[i]])
   }
-  comparison_df <- rbind(comparison_df, cbind(x, overlap, rep(outcome, length(x))))
+  comparison_df <- rbind(comparison_df, cbind(x, overlap, 
+                                              rep(outcome, length(x)),
+                                              rep(proper_names[[outcome]],
+                                                  length(x))))
 }
 
 comparison_df <- comparison_df %>% 
-  rename("lasso" = "x", "rf" = "overlap", "outcome" = "V3") %>%
+  rename("lasso" = "x", "rf" = "overlap", "gains" = "V3", "outcome"=V4) %>%
   mutate_at(vars(lasso, rf), as.numeric)
-
 
 ## TO DO: need to pull the actual names of the outcomes for better plot titles
 ggplot(comparison_df, aes(lasso, rf, color = outcome)) +
