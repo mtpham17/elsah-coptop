@@ -855,10 +855,14 @@ for (name in names(var_imp_y1)) {
   plot <- ggplot(varimp_df, aes(x=reorder(predictors, +Overall), y=Overall)) +
     geom_col() +
     coord_flip() + 
-    labs(title=paste(outcome, "Random Forest Variable Importance"),
+    labs(title=paste(proper_names[[name]], 
+                     "Random Forest Variable Importance"),
        x ="Variable Importance", 
        y = "Predictors") + 
-    theme(plot.title = element_text(size = 10, hjust = 0.5))
+    theme(plot.title = element_text(size = 10),
+          axis.title = element_text(size = 10),
+          axis.text.y = element_text(size = 5),
+          axis.text.x = element_text(size = 5))
   print(plot)
 }
 
