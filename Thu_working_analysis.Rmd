@@ -3,6 +3,8 @@ title: "Preliminary ELSA Machine Learnings Tests"
 author: "Jonathan Seiden, Thu Pham"
 date: "8/08/2022"
 output: pdf_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -265,7 +267,7 @@ outcomes_and_obs_full_y1 <- outcomes_and_obs_full_y1 %>%
 # originally was o_c_verbal_talk:o_t_sched_t
 
 dim(outcomes_and_obs_full_y1)
-
+length(table(outcomes_and_obs_full_y1$classid))
 ```
 
 ## Analysis
@@ -275,14 +277,41 @@ Before anything, let's just see how the "Magic 8" variables concord predict gain
 ```{r magic8, echo=TRUE, fig.height=8, cache=TRUE}
 
 m8 <- outcomes_and_obs_full_y1 %>% 
-  dplyr::select(starts_with(c("gain", "m8", "c_m8")))
+  dplyr::select(starts_with(c("gain", "m8", "c_m8"))) %>% 
+  mutate(
+    m8_goal_3_1 = -m8_goal_3_1,
+    c_m8_goal_1 = -c_m8_goal_1) %>% 
+  rename(`MEFS Z-score` = gain_c_mefs_str,
+         `Pencil Tap` = gain_c_pt_pcorrect,
+         `Leiter - Cognitive/Social` = gain_c_ltr_cogsoc_comp,
+         `Leiter - Emotions/Regulation` = gain_c_ltr_emo_comp,
+         `PALS BSA` = gain_c_pbsa_total,
+         `PALS RA` = gain_c_pra_total,
+         QUILS = gain_c_quils_total_raw, 
+         `WJ Letter Word ID` = gain_c_wjlw_str,
+         `WJ Applied Problems` = gain_c_wjap_str,
+         `Magic 8 Goal 2` = m8_goal_2,
+         `Magic 8 Goal 3.1` = m8_goal_3_1,
+         `Magic 8 Goal 3.2` = m8_goal_3_2,
+         `Magic 8 Goal 4` = m8_goal_4,
+         `Magic 8 Goal 1` = c_m8_goal_1,
+         `Magic 8 Goal 5` = c_m8_goal_5_1,
+         `Magic 8 Goal 6` = c_m8_goal_6,
+         `Magic 8 Goal 7` = c_m8_goal_7,         
+         `Magic 8 Goal 8` = c_m8_goal_8,         
+         ) %>% 
+  relocate(`Magic 8 Goal 1`, 
+          .before = `Magic 8 Goal 2`)
 
 library(corrplot)
-
 m8cor <- cor(m8, 
     use = "pairwise.complete.obs")
 
-corrplot(m8cor)
+m8corplot <- corrplot(m8cor,
+         type = "lower",
+         title = "Correlation matrix of outcome gains and `Magic 8` variables",
+         tl.srt	= 45,
+         tl.col = "black")
 
 ```
 
@@ -295,6 +324,8 @@ We will first try a cross-validated LASSO, which will aggressively remove variab
 
 # https://stackoverflow.com/questions/9332417/whats-a-good-way-to-store-multiple-models-in-an-r-data-structure
 set.seed(4224)
+
+names(outcomes_and_obs_full_y1)[startsWith(colnames(outcomes_and_obs_full_y1), "gain")]
 
 gain_ind <- which(startsWith(colnames(outcomes_and_obs_full_y1), "gain"))
 models_y1 <- list()
@@ -335,6 +366,28 @@ for (i in gain_ind) {
 
 }
 
+#Get RMSE for each LASSO model
+lasso.rmse <- list()
+for(j in 1:length(models_y1)) {
+
+  #Get the var in a hacky way
+  var <- names(outcomes_and_obs_full_y1)[j + 1]
+
+  #Extract the model and calculate the RMSE
+  model <- models_y1[[j]]
+  lasso.rmse[[j]] <- c(rmse = sqrt(model$cvm[model$lambda == model$lambda.min]),
+                       var = var)
+  }
+
+#Add SDs and make a df of RMSE
+gains <- outcomes_and_obs_full_y1 %>% 
+  select(starts_with("gain"))
+
+lasso.rmse <- bind_rows(lasso.rmse) %>% 
+  mutate(sd = as.numeric(map(gains, sd, na.rm = TRUE)))
+
+
+
 ```
 
 ```{r, fig.height=8, cache=TRUE, eval=FALSE}
@@ -345,6 +398,29 @@ for (i in gain_ind) {
 ```
 
 ```{r y1 pulling most predictive covariates, cache=TRUE}
+#### JONATHAN WRITING CODE FOR EXPORT TO EXCEL
+
+coefplot <- coefs_y1 %>% 
+  bind_rows(.id = "gain") %>% 
+  mutate(across(-gain, ~ifelse(!is.na(.x), 1, 0))) %>% 
+  mutate(model.size = rowSums(across(where(is.numeric)), na.rm=TRUE))
+
+
+coefplotL <- coefplot %>% 
+  pivot_longer(cols = -gain,
+               names_to = "var",
+               values_to = "included") %>% 
+  group_by(var) %>% 
+  mutate(total = sum(included)) %>% 
+  filter(total > 1)
+
+coefplotW <- coefplotL %>% 
+  select(-total) %>% 
+  pivot_wider(names_from = var,
+              values_from = included)
+
+writexl::write_xlsx(coefplotW, "lasso_nonzerocoefficients.xlsx")
+
 # loop through the names associated with each outcome -- add 1 to corresponding entry
 count_coefs_y1 <- list()
 for (outcome in coefs_y1) {
@@ -447,46 +523,72 @@ rf_plots <- list()
 test_data <- outcomes_and_obs_full_y1
 
 # make sure this works with small subset of data
-for (i in gain_ind) {
-  name <- names(outcomes_and_obs_full_y1)[i]
-  df_analysis <- test_data %>%
-    filter(!is.na(test_data[[name]])) %>%
-    dplyr::select(c(name, "o_c_verbal_Fuss/Cry(FC)":actualtype))
-    # ask about verbal_fuss vs o_c_verbal_Talk(T) (original)
-    # mutate_at(vars("o_c_verbal_Fuss/Cry (FC)":actualtype), replace.na)
-  print(name)
-  # options(na.action="na.pass")
-  x = model.matrix(as.formula(paste(name, "~ .")), data = df_analysis)
+# for (i in gain_ind) {
+#   name <- names(outcomes_and_obs_full_y1)[i]
+#   df_analysis <- test_data %>%
+#     filter(!is.na(test_data[[name]])) %>%
+#     dplyr::select(c(name, "o_c_verbal_Fuss/Cry(FC)":actualtype))
+#     # ask about verbal_fuss vs o_c_verbal_Talk(T) (original)
+#     # mutate_at(vars("o_c_verbal_Fuss/Cry (FC)":actualtype), replace.na)
+#   print(name)
+#   # options(na.action="na.pass")
+#   x = model.matrix(as.formula(paste(name, "~ .")), data = df_analysis)
+# 
+#   # Fit the random forest model
+#   rf_fit <- train(as.formula(paste(name, "~ .")), #Use all variables in the prediction
+#                 data = df_analysis, #Use the training data
+#                 method = "ranger",
+#                 importance = "permutation",
+#                 # ntree = 500,
+#                 na.action=na.pass)
+# 
+#   rf_plots[[name]] <- varImp(rf_fit) %>%
+#     pluck(1) %>%
+#     rownames_to_column("var") %>%
+#     ggplot(aes(x = reorder(var, Overall), y = Overall)) +
+#     geom_col(fill = "grey75") +
+#     coord_flip() +
+#     theme_minimal()
+# 
+#   # Store the full RF model
+#   rf_models[[name]] <- rf_fit
+# 
+#   # store variable importances as a data frame
+#   df <- as.data.frame(varImp(rf_fit)$importance)
+#   # arrange in descending order (most to least important), and put into list
+#   varimp_y1[[name]] <- df %>% arrange(desc(Overall))
+# }
+# 
+# rfoutput <- list(varimp_y1, rf_models, rf_plots)
+# 
+# saveRDS(rfoutput, file = "rfoutput.RDS")
 
-  # Fit the random forest model
-  rf_fit <- train(as.formula(paste(name, "~ .")), #Use all variables in the prediction
-                data = df_analysis, #Use the training data
-                method = "ranger",
-                importance = "permutation",
-                # ntree = 500,
-                na.action=na.pass)
+rfoutput <-readRDS("rfoutput.RDS")
 
-  rf_plots[[name]] <- varImp(rf_fit) %>%
-    pluck(1) %>%
-    rownames_to_column("var") %>%
-    ggplot(aes(x = reorder(var, Overall), y = Overall)) +
-    geom_col(fill = "grey75") +
-    coord_flip() +
-    theme_minimal()
 
-  # Store the full RF model
-  rf_models[[name]] <- rf_fit
+#Get RMSE from each RF model
+rfmodels <- rfoutput[[2]]
+rf.rmse <- list()
 
-  # store variable importances as a data frame
-  df <- as.data.frame(varImp(rf_fit)$importance)
-  # arrange in descending order (most to least important), and put into list
-  varimp_y1[[name]] <- df %>% arrange(desc(Overall))
-}
+for(j in 1:length(rfoutput[[2]])) {
 
-rfoutput <- list(varimp_y1, rf_models, rf_plots)
+  #Extract the model with lowest RMSE RMSE
+  rf.rmse[[j]] <- rfmodels[[j]]$results %>% 
+    slice_min(RMSE) %>% 
+    mutate(var = names(outcomes_and_obs_full_y1)[j + 1])
 
-saveRDS(rfoutput, file = "rfoutput.RDS")
+  }
 
+rf.rmse <- rf.rmse %>% 
+  bind_rows()
+
+#Combine with LASSO rmse table
+rmse <- left_join(rf.rmse, lasso.rmse, by = "var") %>% 
+  dplyr::select(var, RMSE, rmse, sd) %>% 
+  rename(`RF RMSE` = RMSE,
+         `LASSO RSMSE` = rmse,
+         SD = sd)
+writexl::write_xlsx(rmse, "RMSE.xlsx")
 
 ```
 
